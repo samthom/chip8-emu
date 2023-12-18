@@ -1,0 +1,2 @@
+CompileFlags:
+  Add: -I/opt/homebrew/Cellar/sdl2/2.28.5/include/SDL2
