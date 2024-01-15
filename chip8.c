@@ -123,7 +123,7 @@ bool init_chip8(chip8_t *chip8, const char rom_name[]) {
 	};
 
 	// Load font
-	memcpy(&chip8->ram, font, sizeof(font));
+	memcpy(&chip8->ram[0], font, sizeof(font));
 	//  Load ROM
 	// Open ROM file
 	FILE *rom = fopen(rom_name, "rb");
@@ -279,6 +279,21 @@ void print_debug_info(chip8_t *chip8) {
 		// 0x2NNN: Call Subroutine at NNN
 		printf("Call subroutine at NNN (0x%04X) \n", chip8->inst.NNN);
 		break;
+	case 0x03:
+		// 0x3XNN: Skip to next instruction if Vx == KK
+		printf("Increment PC by two if V%X(0x%02X) == NN(0x%02X)\n", chip8->inst.X,
+					 chip8->V[chip8->inst.X], chip8->inst.NN);
+		break;
+	case 0x04:
+		// 0x4XNN: Skip to next instruction if Vx != KK
+		printf("Increment PC by two if V%X(0x%02X) != NN(0x%02X)\n", chip8->inst.X,
+					 chip8->V[chip8->inst.X], chip8->inst.NN);
+		break;
+	case 0x05:
+		// 0x5XY0: Skip to next instruction if Vx == Vy
+		printf("Increment PC by two if V%X(0x%02X) == V%X(0x%02X)\n", chip8->inst.X,
+					 chip8->V[chip8->inst.X], chip8->inst.Y, chip8->V[chip8->inst.Y]);
+		break;
 	case 0x06:
 		// 0x6XNN: Set register VX to NN
 		printf("Set register V%X = NN(%02X)\n", chip8->inst.X, chip8->inst.NN);
@@ -288,6 +303,38 @@ void print_debug_info(chip8_t *chip8) {
 		printf("Set register V%X (0x%02X) += NN(%02X), Result 0x%02X\n",
 					 chip8->inst.X, chip8->V[chip8->inst.X], chip8->inst.NN,
 					 chip8->V[chip8->inst.X] + chip8->inst.NN);
+		break;
+	case 0x08:
+		switch (chip8->inst.N) {
+		case 0x0:
+			// 0x8XY0: Set Vx = Vy
+			printf("Set register V%X (0x%02X) = V%X (0x%02X)\n", chip8->inst.X,
+						 chip8->V[chip8->inst.X], chip8->inst.Y, chip8->V[chip8->inst.Y]);
+			break;
+		case 0x1:
+			// 0x8XY1: Set Vx = Vx OR Vy
+			printf("Set register V%X (0x%02X) |= V%X (0x%02X)\n", chip8->inst.X,
+						 chip8->V[chip8->inst.X], chip8->inst.Y, chip8->V[chip8->inst.Y]);
+			break;
+		case 0x2:
+			// 0x8XY2: Set Vx = Vx AND Vy
+			printf("Set register V%X (0x%02X) &= V%X (0x%02X)\n", chip8->inst.X,
+						 chip8->V[chip8->inst.X], chip8->inst.Y, chip8->V[chip8->inst.Y]);
+			break;
+		case 0x3:
+			// 0x8XY3: Set Vx = Vx XOR Vy
+			printf("Set register V%X (0x%02X) ^= V%X (0x%02X)\n", chip8->inst.X,
+						 chip8->V[chip8->inst.X], chip8->inst.Y, chip8->V[chip8->inst.Y]);
+			break;
+		default:
+			printf("Unimplemented Opcode\n");
+			break;
+		}
+		break;
+	case 0x09:
+		// 0x9XY0: Skip to next instruction if Vx != Vy
+		printf("Increment PC by two if V%X(0x%02X) != V%X(0x%02X)\n", chip8->inst.X,
+					 chip8->V[chip8->inst.X], chip8->inst.Y, chip8->V[chip8->inst.Y]);
 		break;
 	case 0x0A:
 		// 0xANNN: Set index register I to NNN
@@ -300,6 +347,35 @@ void print_debug_info(chip8_t *chip8) {
 					 "turned off.\n",
 					 chip8->inst.N, chip8->inst.X, chip8->V[chip8->inst.X], chip8->inst.Y,
 					 chip8->V[chip8->inst.Y], chip8->I);
+		break;
+	case 0x0F:
+		switch (chip8->inst.NN) {
+		case 0x29:
+			// 0xFX29: Set I = location of sprite for digit Vx
+			printf("Set I to location of sprite for digit V%X(%02X), ie %02X \n",
+						 chip8->inst.X, chip8->V[chip8->inst.X],
+						 chip8->V[chip8->inst.X] * 5);
+			break;
+		case 0x55:
+			// 0xFX55: Store registers V0 through VX in memory starting at location I
+			// The interpreter copies the values of registers V0 through VX into
+			// memory, starting at the address I
+			printf("Store registers V0 through V%X in memory starting at location "
+						 "0x%04X",
+						 chip8->inst.X, chip8->I);
+			break;
+		case 0x65:
+			// 0xFX65: Read registers V0 through VX from memory starting at locaation
+			// I The interpreter reads values from memory starting at location I into
+			// registers V0 through VX
+			printf("Read registers V0 through V%X from memory starting at location "
+						 "0x%04X",
+						 chip8->inst.X, chip8->I);
+			break;
+		default:
+			printf("Unimplemented Opcode\n");
+			break;
+		}
 		break;
 	default:
 		printf("Unimplemented Opcode.\n");
@@ -324,9 +400,10 @@ void emulate_instruction(chip8_t *chip8, const config_t config) {
 
 #ifdef DEBUG
 	print_debug_info(chip8);
-#endif /* ifdef DEBUG                                                          \
-				*/
+#endif
 
+	uint8_t X_coord;
+	uint8_t Y_coord;
 	// Emulate opcode
 	switch ((chip8->inst.opcode >> 12) & 0x0F) {
 	case 0x00:
@@ -338,6 +415,8 @@ void emulate_instruction(chip8_t *chip8, const config_t config) {
 			// Grab last address from sub routine stack (pop from stack)
 			// set program counter to last address on stack
 			chip8->PC = *--chip8->stack_ptr;
+		} else {
+			// Unimplemented/invalid opcode, may be 0xNNN for calling machine code
 		}
 		break;
 	case 0x01:
@@ -347,9 +426,26 @@ void emulate_instruction(chip8_t *chip8, const config_t config) {
 	case 0x02:
 		// 0x2NNN: Call Subroutine at NNN
 		// subroutine stack (push to the stack)
-		*chip8->stack_ptr = chip8->PC; // Store current address to return to the
+		*chip8->stack_ptr++ = chip8->PC; // Store current address to return to the
 		chip8->PC = chip8->inst.NNN; // Store the subroutine address to the PC so it
 																 // will get executed next
+		break;
+	case 0x03:
+		// 0x3XNN: Skip to next instruction if Vx == NN
+		if (chip8->V[chip8->inst.X] == chip8->inst.NN)
+			chip8->PC += 2;
+		break;
+	case 0x04:
+		// 0x4XNN: Skip to next instruction if Vx != KK
+		if (chip8->V[chip8->inst.X] != chip8->inst.NN)
+			chip8->PC += 2;
+		break;
+	case 0x05:
+		// 0x5XY0: Skip to next instruction if Vx == Vy
+		if (chip8->inst.N != 0)
+			break; // Wrong Opcode
+		if (chip8->V[chip8->inst.X] == chip8->V[chip8->inst.Y])
+			chip8->PC += 2;
 		break;
 	case 0x06:
 		// 0x6XNN: Set register VX to NN
@@ -359,17 +455,45 @@ void emulate_instruction(chip8_t *chip8, const config_t config) {
 		// 0x7XNN: Set register VX += NN
 		chip8->V[chip8->inst.X] += chip8->inst.NN;
 		break;
+	case 0x08:
+		switch (chip8->inst.N) {
+		case 0x0:
+			// 0x8XY0: Set Vx = Vy
+			chip8->V[chip8->inst.X] = chip8->V[chip8->inst.Y];
+			break;
+		case 0x1:
+			// 0x8XY1: Set Vx = Vx OR Vy
+			chip8->V[chip8->inst.X] |= chip8->V[chip8->inst.Y];
+			break;
+		case 0x2:
+			// 0x8XY2: Set Vx = Vx AND Vy
+			chip8->V[chip8->inst.X] &= chip8->V[chip8->inst.Y];
+			break;
+		case 0x3:
+			// 0x8XY3: Set Vx = Vx XOR Vy
+			chip8->V[chip8->inst.X] ^= chip8->V[chip8->inst.Y];
+			break;
+		default:
+			// Wrong opcode
+			break;
+		}
+		break;
+	case 0x09:
+		// 0x9XY0: Skip to next instruction if Vx != Vy
+		if (chip8->V[chip8->inst.X] != chip8->V[chip8->inst.Y])
+			chip8->PC += 2;
+		break;
 	case 0x0A:
 		// 0xANNN: Set index register I to NNN
 		chip8->I = chip8->inst.NNN;
 		break;
-	case 0x0D: {
+	case 0x0D:
 		// 0xDXYN: Draw N-height sprite at coords X,Y; Read from location I;
 		// Screen pixels are XOR'd with sprite bits,
 		// VF (Carry flag) is set if any screen pixels are set off; This is useful
 		// for collision detection or other reasons.
-		uint8_t X_coord = chip8->V[chip8->inst.X] % config.window_width;
-		uint8_t Y_coord = chip8->V[chip8->inst.Y] % config.window_height;
+		X_coord = chip8->V[chip8->inst.X] % config.window_width;
+		Y_coord = chip8->V[chip8->inst.Y] % config.window_height;
 
 		const uint8_t og_X = X_coord;
 
@@ -401,7 +525,29 @@ void emulate_instruction(chip8_t *chip8, const config_t config) {
 				break;
 		}
 		break;
-	}
+	case 0x0F:
+		switch (chip8->inst.NN) {
+		case 0x29:
+			// 0xFX29: Set I = location of sprite for digit Vx
+			chip8->I = chip8->V[chip8->inst.X] * 5;
+			break;
+		case 0x33:
+			// 0xFX33: Store BCD representation of VX in memory location I, I+1, I+2
+			break;
+		case 0x55:
+			// 0xFX55: Store registers V0 through VX in memory starting at location I
+			// The interpreter copies the values of registers V0 through VX into
+			// memory, starting at the address I
+			memcpy(&chip8->ram[chip8->I], chip8->V, chip8->inst.X);
+			break;
+		case 0x65:
+			// 0xFX65: Read registers V0 through VX from memory starting at locaation
+			// I The interpreter reads values from memory starting at location I into
+			// registers V0 through VX
+			memcpy(chip8->V, &chip8->ram[chip8->I], chip8->inst.X);
+			break;
+		}
+		break;
 	default:
 		break; // Unimplemented or invalid opcode
 	}
