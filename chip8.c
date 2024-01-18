@@ -326,6 +326,46 @@ void print_debug_info(chip8_t *chip8) {
 			printf("Set register V%X (0x%02X) ^= V%X (0x%02X)\n", chip8->inst.X,
 						 chip8->V[chip8->inst.X], chip8->inst.Y, chip8->V[chip8->inst.Y]);
 			break;
+		case 0x4:
+			// 0x8XY4: Add VX + VY, set VF = carry
+			printf("Set V%X (0x%02X) += V%X (0x%02X), ie 0x%X VF is set if there is "
+						 "overflow  \n",
+						 chip8->inst.X, chip8->V[chip8->inst.X], chip8->inst.Y,
+						 chip8->V[chip8->inst.Y],
+						 (uint16_t)(chip8->V[chip8->inst.X] + chip8->V[chip8->inst.Y]));
+			break;
+		case 0x5:
+			// 0x8XY5: Set VX = VX - VY, Set VF = NOT borrow
+			printf(
+					"Set V%X (0x%02X) -= V%X (0x%02X), ie 0x%X VF is set if VX > VY  \n",
+					chip8->inst.X, chip8->V[chip8->inst.X], chip8->inst.Y,
+					chip8->V[chip8->inst.Y],
+					chip8->V[chip8->inst.X] - chip8->V[chip8->inst.Y]);
+			break;
+		case 0x6:
+			// 0x8XY6: Set VX = VX SHR 1
+			// If the least significant bit of Vx is 1, then VF is set 1, otherwise 0,
+			// Vx is divided 2
+			printf("if lsb of V%X (0x%X) == 1, VF is set 1, V%X /= 2\n",
+						 chip8->inst.X, chip8->V[chip8->inst.X] & 0x1,
+						 chip8->V[chip8->inst.X]);
+			break;
+		case 0x7:
+			// 0x8XY7: Set VX = VY - VX, Set VF = NOT borrow
+			printf(
+					"Set V%X (0x%02X) -= V%X (0x%02X), ie 0x%X VF is set if VX < VY  \n",
+					chip8->inst.X, chip8->V[chip8->inst.X], chip8->inst.Y,
+					chip8->V[chip8->inst.Y],
+					chip8->V[chip8->inst.X] - chip8->V[chip8->inst.Y]);
+			break;
+		case 0xe:
+			// 0x8XY6: Set VX = VX SHL 1
+			// If the most significant bit of Vx is 1, then VF is set to 1, otherwise
+			// 0. Then Vx is multiplied by 2
+			printf("if lsb of V%X (0x%X) == 1, VF is set 1, V%X /= 2\n",
+						 chip8->inst.X, chip8->V[chip8->inst.X] >> 7 & 0x1,
+						 chip8->V[chip8->inst.X]);
+			break;
 		default:
 			printf("Unimplemented Opcode\n");
 			break;
@@ -339,6 +379,11 @@ void print_debug_info(chip8_t *chip8) {
 	case 0x0A:
 		// 0xANNN: Set index register I to NNN
 		printf("Set I to NNN (0x%04X)\n", chip8->inst.NNN);
+		break;
+	case 0x0B:
+		// 0xBNNN: Jump to location nnn + V0 (PC = V0 + NNN)
+		printf("Set PC to V0 (0x%02X) + NNN (0x%04X) = 0x%04X\n", chip8->V[0],
+					 chip8->inst.NNN, chip8->V[0] + chip8->inst.NNN);
 		break;
 	case 0x0D:
 		// 0xDXYN: Draw N-height sprite at coords X,Y; Read from location I;
@@ -473,6 +518,41 @@ void emulate_instruction(chip8_t *chip8, const config_t config) {
 			// 0x8XY3: Set Vx = Vx XOR Vy
 			chip8->V[chip8->inst.X] ^= chip8->V[chip8->inst.Y];
 			break;
+		case 0x4:
+			// 0x8XY4: Add VX + VY, set VF = carry
+			if ((uint16_t)(chip8->V[chip8->inst.X] + chip8->V[chip8->inst.Y]) > 255)
+				chip8->V[0xF] = 1;
+			chip8->V[chip8->inst.X] += chip8->V[chip8->inst.Y];
+			break;
+		case 0x5:
+			// 0x8XY5: Set VX = VX - VY, Set VF = NOT borrow
+			if (chip8->V[chip8->inst.X] > chip8->V[chip8->inst.Y])
+				chip8->V[0xF] = 1;
+			chip8->V[0xF] = 0;
+			chip8->V[chip8->inst.X] -= chip8->V[chip8->inst.Y];
+			break;
+		case 0x6:
+			// 0x8XY6: Set VX = VX SHR 1
+			// If the least significant bit of Vx is 1, then VF is set 1, otherwise 0,
+			// Vx is divided 2
+			chip8->V[0xF] = chip8->V[chip8->inst.X] & 1;
+			chip8->V[chip8->inst.X] >>= 1;
+			break;
+		case 0x7:
+			// 0x8XY7: Set VX = VY - VX, Set VF = NOT borrow
+			if (chip8->V[chip8->inst.Y] > chip8->V[chip8->inst.X])
+				chip8->V[0xF] = 1;
+			chip8->V[0xF] = 0;
+			chip8->V[chip8->inst.X] =
+					chip8->V[chip8->inst.Y] - chip8->V[chip8->inst.X];
+			break;
+		case 0xe:
+			// 0x8XY6: Set VX = VX SHL 1
+			// If the most significant bit of Vx is 1, then VF is set to 1, otherwise
+			// 0. Then Vx is multiplied by 2
+			chip8->V[0xF] = chip8->V[chip8->inst.X] >> 7 & 1;
+			chip8->V[chip8->inst.X] <<= 1;
+			break;
 		default:
 			// Wrong opcode
 			break;
@@ -486,6 +566,10 @@ void emulate_instruction(chip8_t *chip8, const config_t config) {
 	case 0x0A:
 		// 0xANNN: Set index register I to NNN
 		chip8->I = chip8->inst.NNN;
+		break;
+	case 0x0B:
+		// 0xBNNN: Jump to location nnn + V0 (PC = V0 + NNN)
+		chip8->PC = chip8->V[0] + chip8->inst.NNN;
 		break;
 	case 0x0D:
 		// 0xDXYN: Draw N-height sprite at coords X,Y; Read from location I;
