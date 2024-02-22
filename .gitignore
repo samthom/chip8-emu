@@ -1,6 +1,6 @@
 # Prerequisites
 *.d
-
+*.ch8
 # Object files
 *.o
 *.ko
@@ -50,3 +50,4 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+chip8
