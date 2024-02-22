@@ -30,12 +30,12 @@ typedef struct {
 
 typedef enum {
 	QUIT,
-    RUNNING,
+	RUNNING,
 	PAUSED,
 } emulator_state_t;
 
 typedef struct {
-    uint16_t opcode;
+	uint16_t opcode;
 	uint16_t NNN; // 12 bit address/constand
 	uint8_t NN;		// 8 bit constant
 	uint8_t N;		// 4 bit constant
@@ -52,8 +52,8 @@ typedef struct {
 	uint8_t V[16];				// V0-VF Data registers
 	uint16_t I;						// Index register
 	uint16_t PC;					// Program Counter
-	uint8_t delay_timer;		// Decrease at 60hz per second when > 0
-	uint8_t sound_timer;		// Decrease at 60hz per second and play tone when > 0
+	uint8_t delay_timer;	// Decrease at 60hz per second when > 0
+	uint8_t sound_timer;	// Decrease at 60hz per second and play tone when > 0
 	bool keypad[16];			// Hexadecimal keypad
 	const char *rom_name; // Currently running ROM
 	instruction_t inst;		// Currently executing inst
@@ -515,19 +515,14 @@ void print_debug_info(chip8_t *chip8) {
 		if (chip8->inst.NN == 0x9E) {
 			// 0xEX9E: Skip next instruction if the key with the value of VX is
 			// pressed
-			printf("Skip next instruction if the key in V%X (0x02X) is pressed; "
-						 "Keypad value: %d\n"
-						 "Keypad value: %d\n",
-						 chip8->inst.X, chip8->V[chip8->inst.X],
-						 chip8->keypad[chip8->V[chip8->inst.X]]);
+			printf("Skip next instruction if the key in V%X (0x%02X) is pressed; ",
+						 chip8->inst.X, chip8->V[chip8->inst.X]);
 		} else if (chip8->inst.NN == 0xA1) {
 			// 0xEXA1: Skip next instruction if the key with the value of VX is not
 			// pressed
-			printf("Skip next instruction if the key in V%X (0x02X) is not pressed; "
-						 "Keypad value: %d\n"
-						 "Keypad value: %d\n",
-						 chip8->inst.X, chip8->V[chip8->inst.X],
-						 chip8->keypad[chip8->V[chip8->inst.X]]);
+			printf(
+					"Skip next instruction if the key in V%X (0x%02X) is not pressed; ",
+					chip8->inst.X, chip8->V[chip8->inst.X]);
 		}
 		break;
 	case 0x0F:
@@ -543,11 +538,31 @@ void print_debug_info(chip8_t *chip8) {
 			printf("I(0x%04X) +=V%X (0x%02X)\n", chip8->I, chip8->inst.X,
 						 chip8->V[chip8->inst.X]);
 			break;
+		case 0x15:
+			// 0xFX15: Set delay time = Vx
+			printf("delay_timer(0x%02X) = V%X(0x%02X)\n", chip8->delay_timer,
+						 chip8->inst.X, chip8->V[chip8->inst.X]);
+			break;
+		case 0x07:
+			// 0xFX07: Set Vx = delay timer value.
+			printf("V%X (0x%02X)= 0x%02X\n", chip8->inst.X, chip8->V[chip8->inst.X],
+						 chip8->delay_timer);
+			break;
+		case 0x18:
+			// 0xFX18: Set sound timer = Vx
+			printf("sound_timer(0x%02X) = V%X(0x%02X)\n", chip8->sound_timer,
+						 chip8->inst.X, chip8->V[chip8->inst.X]);
+			break;
 		case 0x29:
 			// 0xFX29: Set I = location of sprite for digit Vx
 			printf("Set I to location of sprite for digit V%X(%02X), ie %02X \n",
 						 chip8->inst.X, chip8->V[chip8->inst.X],
 						 chip8->V[chip8->inst.X] * 5);
+			break;
+		case 0x33:
+			printf("Store BCD representation of V%X (0x%02X) at memory from I "
+						 "(0x%04X)\n",
+						 chip8->inst.X, chip8->V[chip8->inst.X], chip8->I);
 			break;
 		case 0x55:
 			// 0xFX55: Store registers V0 through VX in memory starting at location I
@@ -674,9 +689,7 @@ void emulate_instruction(chip8_t *chip8, const config_t config) {
 			break;
 		case 0x5:
 			// 0x8XY5: Set VX = VX - VY, Set VF = NOT borrow
-			if (chip8->V[chip8->inst.X] > chip8->V[chip8->inst.Y])
-				chip8->V[0xF] = 1;
-			chip8->V[0xF] = 0;
+			chip8->V[0xF] = chip8->V[chip8->inst.X] >= chip8->V[chip8->inst.Y];
 			chip8->V[chip8->inst.X] -= chip8->V[chip8->inst.Y];
 			break;
 		case 0x6:
@@ -688,9 +701,7 @@ void emulate_instruction(chip8_t *chip8, const config_t config) {
 			break;
 		case 0x7:
 			// 0x8XY7: Set VX = VY - VX, Set VF = NOT borrow
-			if (chip8->V[chip8->inst.Y] > chip8->V[chip8->inst.X])
-				chip8->V[0xF] = 1;
-			chip8->V[0xF] = 0;
+			chip8->V[0xF] = chip8->V[chip8->inst.X] <= chip8->V[chip8->inst.Y];
 			chip8->V[chip8->inst.X] =
 					chip8->V[chip8->inst.Y] - chip8->V[chip8->inst.X];
 			break;
@@ -812,20 +823,30 @@ void emulate_instruction(chip8_t *chip8, const config_t config) {
 			// 0xFX29: Set I = location of sprite for digit Vx
 			chip8->I = chip8->V[chip8->inst.X] * 5;
 			break;
-		case 0x33:
+		case 0x33: {
 			// 0xFX33: Store BCD representation of VX in memory location I, I+1, I+2
+			// I = hundred's place, I+1 = tent's palce, I+2 = one's place
+			uint8_t bcd = chip8->V[chip8->inst.X]; // 123
+			chip8->ram[chip8->I + 2] = bcd % 10;
+			bcd /= 10;
+			chip8->ram[chip8->I + 1] = bcd % 10;
+			bcd /= 10;
+			chip8->ram[chip8->I] = bcd;
 			break;
+		}
 		case 0x55:
 			// 0xFX55: Store registers V0 through VX in memory starting at location I
 			// The interpreter copies the values of registers V0 through VX into
 			// memory, starting at the address I
-			memcpy(&chip8->ram[chip8->I], chip8->V, chip8->inst.X);
+			for (uint8_t i = 0; i <= chip8->inst.X; i++)
+				chip8->ram[chip8->I + i] = chip8->V[i];
 			break;
 		case 0x65:
 			// 0xFX65: Read registers V0 through VX from memory starting at locaation
 			// I The interpreter reads values from memory starting at location I into
 			// registers V0 through VX
-			memcpy(chip8->V, &chip8->ram[chip8->I], chip8->inst.X);
+			for (uint8_t i = 0; i <= chip8->inst.X; i++)
+				chip8->V[i] = chip8->ram[chip8->I + i];
 			break;
 		}
 		break;
