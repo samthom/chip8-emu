@@ -32,8 +32,8 @@ typedef struct {
 	uint32_t insts_per_second; // CHIP8 CPU "clock rate" or hz
 	uint32_t square_wave_freq; //  Frequency of square wave sound eg. 440hz for
 														 //  middle A
-    uint32_t audio_sample_rate;
-	int16_t volume;						 // How loud the sound
+	uint32_t audio_sample_rate;
+	int16_t volume; // How loud the sound
 } config_t;
 
 typedef enum {
@@ -74,7 +74,8 @@ void audio_callback(void *userdata, uint8_t *stream, int len) {
 	int16_t *audio_data = (int16_t *)stream;
 	static uint32_t running_sample_index = 0;
 
-	const int32_t square_wave_period = config->audio_sample_rate / config->square_wave_freq;
+	const int32_t square_wave_period =
+			config->audio_sample_rate / config->square_wave_freq;
 	const int32_t half_square_wave_period = square_wave_period / 2;
 
 	for (int i = 0; i < len / 2; i++) {
@@ -139,10 +140,10 @@ bool set_config_from_args(config_t *config, const int argc, char **argv) {
 			.bg_color = 0x000000FF, // black
 			.scale_factor = 20,			// Default resolution
 			.pixel_outline = true,
-			.insts_per_second = 700, // Number of inst to emulate in one second
-			.square_wave_freq = 440, // 440hz for middle A
-        .audio_sample_rate = 44100, // CD Quality
-			.volume = 3000,					 // INT16_MAX would be max volume
+			.insts_per_second = 700,		// Number of inst to emulate in one second
+			.square_wave_freq = 440,		// 440hz for middle A
+			.audio_sample_rate = 44100, // CD Quality
+			.volume = 3000,							// INT16_MAX would be max volume
 	};
 
 	// Override defaults form passed in arguments
